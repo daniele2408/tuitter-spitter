@@ -76,3 +76,5 @@ kotlin-ide/
 *.jar
 config.yaml
 .idea/
+gradle/
+/gradlew
