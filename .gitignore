@@ -78,3 +78,4 @@ config.yaml
 .idea/
 gradle/
 /gradlew
+gradlew.bat
