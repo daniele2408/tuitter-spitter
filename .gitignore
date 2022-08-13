@@ -73,3 +73,6 @@ outTmp/
 /test.output
 /kotlin-native/dist
 kotlin-ide/
+*.jar
+config.yaml
+.idea/
