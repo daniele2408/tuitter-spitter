@@ -1,7 +1,7 @@
 package logic
 
 import org.junit.jupiter.api.Test
-import kotlin.test.fail
+import kotlin.test.assertNotNull
 
 internal class TuitterSpitterTest {
 
@@ -18,10 +18,9 @@ internal class TuitterSpitterTest {
 
         for (i in 1..10) {
             val gibberish = tuitterSpitter.spoutGibberish()
-            println(gibberish)
+            assertNotNull(gibberish)
         }
 
-        fail()
 
     }
 
@@ -30,7 +29,7 @@ internal class TuitterSpitterTest {
         val tuitterSpitter = TuitterSpitter(listOf("ciao", "heui"))
         val capitalizeSentence = tuitterSpitter.capitalizeSentence("sono una sentenza. molto brutta. ma molto brutta")
 
-        kotlin.test.assertEquals("Sono una sentenza. Molto brutta. Ma molto brutta", capitalizeSentence)
+        kotlin.test.assertEquals("Sono una sentenza. Molto brutta. Ma molto brutta.", capitalizeSentence)
     }
 
 }
