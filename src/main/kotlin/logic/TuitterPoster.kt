@@ -1,12 +1,13 @@
 package logic
 
+import mu.KotlinLogging
 import org.json.JSONObject
 import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
-val percentEncoderMap = mapOf<String, String>(
+val percentEncoderMap = mapOf(
     """ """ to "%20",
     """!""" to "%21",
     """#""" to "%23",
@@ -28,11 +29,15 @@ val percentEncoderMap = mapOf<String, String>(
     """]""" to "%5D"
 )
 
-private fun percentEncode(data: String) : String {
-    var res = data
+private fun String.percentEncode(): String = run {
+    var res = this
     res = res.replace("""%""", "%25")
     percentEncoderMap.forEach {(k,v) -> res = res.replace(k, v)}
     return res
+}
+
+private fun Pair<String, String>.percentEncode(): Pair<String, String> = run {
+    Pair(this.first.percentEncode(), this.second.percentEncode())
 }
 
 data class OauthConfigs(
@@ -48,41 +53,35 @@ data class OauthConfigs(
     val signatureMethodParam = "oauth_signature_method" to signatureMethod
     val tokenParam = "oauth_token" to token
     val oauthVersionParam = "oauth_version" to oauthVersion
-    val signingKey = "${percentEncode(consumerSecret)}&${percentEncode(tokenSecret)}"
+    val signingKey = "${consumerSecret.percentEncode()}&${tokenSecret.percentEncode()}"
 }
 
-class TuitterPoster(val keyParam: String, val text: String, configs: OauthConfigs, val urlParams: Map<String, String>? = mapOf()) {
+class TuitterPoster(
+    private val keyParam: String,
+    private val text: String,
+    configs: OauthConfigs,
+    private val urlParams: Map<String, String>? = mapOf()
+) {
 
-    val body: BodySingleValue = BodySingleValue(keyParam, text)
-    val encoder: Base64.Encoder = Base64.getEncoder()
+    private val logger = KotlinLogging.logger {}
+    private val encoder: Base64.Encoder = Base64.getEncoder()
 
-    val BASE_URL = configs.baseUrl
-    val CONSUMER_KEY = configs.consumerKeyParam
-    val SIGNATURE_METHOD = configs.signatureMethodParam
-    val TOKEN = configs.tokenParam
-    val VERSION = configs.oauthVersionParam
+    private val baseUrl = configs.baseUrl
+    private val consumerKey = configs.consumerKeyParam
+    private val signatureMethod = configs.signatureMethodParam
+    private val token = configs.tokenParam
+    private val version = configs.oauthVersionParam
 
-    val SIGNING_KEY = configs.signingKey
+    private val signingKey = configs.signingKey
 
 
     private fun percentEncode(data: Pair<String, String>) : Pair<String, String> {
-        return Pair(percentEncode(data.first), percentEncode(data.second))
+        return Pair(data.first.percentEncode(), data.second.percentEncode())
     }
 
-    inner class BodySingleValue(val key: String, val value: String) {
-
-        val param = key to value
-        val payload = mapOf<String, String>(param)
-
-        override fun toString(): String {
-            return "${key}=${percentEncode(value)}"
-        }
-
-    }
-
-    fun createSignature(timestampParam: Pair<String, String>, onceParam: Pair<String, String>): Pair<String, String> {
+    internal fun createSignature(timestampParam: Pair<String, String>, onceParam: Pair<String, String>): Pair<String, String> {
         val sha1Hmac = Mac.getInstance("HmacSHA1")
-        val secretKey = SecretKeySpec(SIGNING_KEY.toByteArray(Charsets.UTF_8), "HmacSHA1")
+        val secretKey = SecretKeySpec(signingKey.toByteArray(Charsets.UTF_8), "HmacSHA1")
         sha1Hmac.init(secretKey)
 
         val signatureBaseString = createSignatureBaseString(timestampParam, onceParam)
@@ -93,62 +92,63 @@ class TuitterPoster(val keyParam: String, val text: String, configs: OauthConfig
          return "oauth_signature" to encodeToString
     }
 
-    fun createSignatureBaseString(timestampParam: Pair<String, String>, onceParam: Pair<String, String>) : String {
-        val encodedBaseUrl = percentEncode(BASE_URL)
-        val parameterString = percentEncode(createParameterString(timestampParam, onceParam))
+    internal fun createSignatureBaseString(timestampParam: Pair<String, String>, onceParam: Pair<String, String>) : String {
+        val encodedBaseUrl = baseUrl.percentEncode()
+        val parameterString = createParameterString(timestampParam, onceParam).percentEncode()
         return "POST&$encodedBaseUrl&$parameterString"
     }
 
-    fun createParameterString(timestampStr: Pair<String, String>, onceParam: Pair<String, String>): String {
+    private fun createParameterString(timestampStr: Pair<String, String>, onceParam: Pair<String, String>): String {
         val listA = listOf(
-//            percentEncode(body.param),  // AAAAAAHH
-            percentEncode(CONSUMER_KEY),
-            percentEncode(onceParam),
-            percentEncode(SIGNATURE_METHOD),
-            percentEncode(timestampStr),
-            percentEncode(TOKEN),
-            percentEncode(VERSION)
-        )
+            consumerKey,
+            onceParam,
+            signatureMethod,
+            timestampStr,
+            token,
+            version
+        ).map { it.percentEncode() }
         val listB = urlParams?.entries?.map { it.key to it.value } ?.toList() ?: listOf()
         return (listA + listB).sortedBy { it.first }.joinToString("&") { "${it.first}=${it.second}" }
     }
 
-    fun generateOnceParam() : Pair<String, String> {
+    internal fun generateOnceParam() : Pair<String, String> {
         val bytes = ByteArray(32)
         val nextBytes = Random.Default.nextBytes(bytes)
         val encode = encoder.encode(nextBytes).toString()
         return "oauth_nonce" to Regex("[^A-Za-z0-9 ]").replace(encode, "")
     }
 
-    fun generateTimestamp() : Pair<String, String> {
+    internal fun generateTimestamp() : Pair<String, String> {
         return "oauth_timestamp" to (System.currentTimeMillis() / 1000).toString()
     }
 
-    fun createParameterOauth(): String {
+    internal fun createParameterOauth(): String {
         val onceParam = generateOnceParam()
         val timestampParam = generateTimestamp()
         return "OAuth " + listOf(
-            percentEncode(CONSUMER_KEY),
+            percentEncode(consumerKey),
             percentEncode(onceParam),
             percentEncode(createSignature(timestampParam, onceParam)),
-            percentEncode(SIGNATURE_METHOD),
+            percentEncode(signatureMethod),
             percentEncode(timestampParam),
-            percentEncode(TOKEN),
-            percentEncode(VERSION)
+            percentEncode(token),
+            percentEncode(version)
         ).sortedBy { it.first }.joinToString(",") { "${it.first}=\"${it.second}\"" }
     }
 
-    fun postTweet() : JSONObject {
+    fun postTweet() : JSONObject? {
         val headers = mapOf(
             "Authorization" to createParameterOauth(),
             "Content-Type" to "application/json"
         )
         val postResult = khttp.post(
-            url = BASE_URL,
+            url = baseUrl,
             headers = headers,
             json = mapOf(keyParam to text)
         )
-        return postResult.jsonObject
+        if (postResult.statusCode == 201) return postResult.jsonObject
+        logger.error { "Error POST result, status code is ${postResult.statusCode}: response is ${postResult.jsonObject}" }
+        return null
     }
 
 
