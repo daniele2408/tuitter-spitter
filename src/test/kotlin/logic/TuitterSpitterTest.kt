@@ -17,7 +17,7 @@ internal class TuitterSpitterTest {
         val tuitterSpitter = TuitterSpitter(tweets)
 
         for (i in 1..10) {
-            val gibberish = tuitterSpitter.spoutGibberish()
+            val gibberish = tuitterSpitter.buildSentence()
             assertNotNull(gibberish)
         }
 
@@ -26,8 +26,7 @@ internal class TuitterSpitterTest {
 
     @Test
     fun capitalize() {
-        val tuitterSpitter = TuitterSpitter(listOf("ciao", "heui"))
-        val capitalizeSentence = tuitterSpitter.capitalizeSentence("sono una sentenza. molto brutta. ma molto brutta")
+        val capitalizeSentence = "sono una sentenza. molto brutta. ma molto brutta".prettifySentence()
 
         kotlin.test.assertEquals("Sono una sentenza. Molto brutta. Ma molto brutta.", capitalizeSentence)
     }
