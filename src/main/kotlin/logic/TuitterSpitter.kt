@@ -5,43 +5,51 @@ import java.util.regex.Pattern
 import kotlin.math.abs
 import kotlin.random.Random
 
-class TuitterSpitter(tweets: List<String>) {
+private const val START_SIGN: String = "$$$"
+private const val END_SIGN: String = "£££"
+private const val MAX_TWEET_LENGTH: Int = 280
 
-    private val MAX_TWEET_LENGTH: Int = 280
-    private val PUNCT_SYMBOLS: Pattern = Pattern.compile("[()»«;?*\":\\n…]")
-    private val MULTIPLE_SPACE: Pattern = Pattern.compile("/  +/g")
-    private val SPACED_COMMA: Pattern = Pattern.compile(" ,")
-    val START_SIGN: String = "$$$"
-    val END_SIGN: String = "£££"
-    val dictWords: MutableMap<String, MutableMap<String, Int>> = mutableMapOf<String, MutableMap<String, Int>>()
+private val PUNCTUATION_SYMBOLS: Pattern = Pattern.compile("[()»«;?*\":\\n…]")
+private val MULTIPLE_SPACE: Pattern = Pattern.compile("/  +/g")
+private val SPACED_COMMA: Pattern = Pattern.compile(" ,")
+
+fun String.wrapSentenceStartEndSigns(): String = run { "$START_SIGN $this $END_SIGN" }
+fun String.replacePunctuation(): String = run { PUNCTUATION_SYMBOLS.matcher(this).replaceAll(" ") }
+fun String.removeMultipleSpaces(): String = run { MULTIPLE_SPACE.matcher(this).replaceAll(" ") }
+fun String.removeSpaceBeforeComma(): String = run { SPACED_COMMA.matcher(this).replaceAll(",") }
+fun String.isTwitterTag(): Boolean = run { """@[A-Za-z0-9_]+""".toRegex().matches(this) }
+fun String.isHttpsUrl(): Boolean = run { """https.*""".toRegex().matches(this) }
+fun String.isShortenedLink(): Boolean = run { """.*t.co.*""".toRegex().matches(this) }
+fun String.removePattern(pattern: String): String = run { this.replace(Regex(pattern), "") }
+fun String.prettifySentence() : String {
+    var res = this
+    val pattern = Regex("(?<=\\. )[a-z]")
+    val find = pattern.findAll(this)
+    for (match in find) {
+        val group: String = match.value
+        res = res.replace(pattern, group.uppercase())
+    }
+    res = res.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+    if (res.last() != '.' && res.last() != '!') return "$res."
+    return res
+}
+
+class FrequencyWordsSentenceBuilder(words: List<String>) {
+    private val dictWords: MutableMap<String, MutableMap<String, Int>> = mutableMapOf<String, MutableMap<String, Int>>()
         .withDefault { mutableMapOf<String, Int>().withDefault { 0 } }
     var distroLengths: Map<Int, Float> = mapOf()
 
     init {
 
-        val pairs: List<Pair<String, String>> = tweets
-            .map { "$START_SIGN $it $END_SIGN" }
-            .map { PUNCT_SYMBOLS.matcher(it).replaceAll(" ") }
-            .map { MULTIPLE_SPACE.matcher(it).replaceAll(" ") }
-            .map { SPACED_COMMA.matcher(it).replaceAll(",") }
-            .map { it.lowercase() }
-            .flatMap { it.split(" ") }
-            .asSequence()
-            .filter { it != "rt" }
-            .filter { !"""@[A-Za-z0-9_]+""".toRegex().matches(it) }
-            .filter { !"""https.*""".toRegex().matches(it) }
-            .filter { !""".*t.co.*""".toRegex().matches(it) }
-            .filter { it != "" }
-            .map {  it.replace(Regex("""@"""), "") }
-            .zipWithNext()
+        val pairs = words.zipWithNext()
             .toList()
-
-        val toSortedMap = tweets.groupingBy { it.length }.eachCount()
+        // Transform tweets
+        val toSortedMap = words.groupingBy { it.length }.eachCount()
             .entries.associate { it.key to it.value }.toSortedMap()
         distroLengths = toSortedMap.entries
             .associate {
-                it.key to toSortedMap.entries.takeWhile { entry -> entry.key <= it.key }.map { it.value }
-                    .sum().toFloat() / tweets.size
+                it.key to toSortedMap.entries.takeWhile { entry -> entry.key <= it.key }
+                    .sumOf { entry -> entry.value }.toFloat() / words.size
             }
             .toMap()
 
@@ -60,12 +68,12 @@ class TuitterSpitter(tweets: List<String>) {
         dictWords[prev]?.merge(next, 1, Int::plus)
     }
 
-    fun getNextWord(prev: String) : String {
+    private fun getNextWord(prev: String) : String {
         val mutableMap = dictWords[prev] ?: return END_SIGN
         return mutableMap.entries.map { entry -> List(entry.value) { entry.key } }.flatten().random()
     }
 
-    fun spoutGibberish() : String {
+    fun buildSentence() : String {
         var gibberish = ""
 
         var someWord = getNextWord(START_SIGN)
@@ -88,10 +96,10 @@ class TuitterSpitter(tweets: List<String>) {
             gibberish.slice(0 until indexOfLastSpace)
         }
 
-        return capitalizeSentence(gibberish)
+        return gibberish.prettifySentence()
     }
 
-    fun shouldIStop(actualLength: Int) : Boolean {
+    private fun shouldIStop(actualLength: Int) : Boolean {
         if (actualLength >= MAX_TWEET_LENGTH) return true
 
         val minOf = distroLengths.keys.minBy { abs(it - actualLength) }
@@ -99,17 +107,32 @@ class TuitterSpitter(tweets: List<String>) {
         return Random.nextFloat() < prob
     }
 
-    fun capitalizeSentence(sentence: String) : String {
-        var res = sentence
-        val pattern = Regex("(?<=\\. )[a-z]")
-        val find = pattern.findAll(sentence)
-        for (match in find) {
-            val group: String = match.value
-            res = res.replace(pattern, group.uppercase())
-        }
-        res = res.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-        if (res.last() != '.' && res.last() != '!') return "$res."
-        return res
+}
+
+class TuitterSpitter(tweets: List<String>) {
+
+    private val frequencyWordsSentenceBuilder = FrequencyWordsSentenceBuilder(sanitizeTweetsAndChain(tweets))
+
+    private fun sanitizeTweetsAndChain(tweets: List<String>): List<String> {
+        return tweets
+            .map { it.wrapSentenceStartEndSigns() }
+            .map { it.replacePunctuation() }
+            .map { it.removeMultipleSpaces() }
+            .map { it.removeSpaceBeforeComma() }
+            .map { it.lowercase() }
+            .flatMap { it.split(" ") }
+            .asSequence()
+            .filter { it != "rt" }
+            .filter { !it.isTwitterTag() }
+            .filter { !it.isHttpsUrl() }
+            .filter { !it.isShortenedLink() }
+            .filter { it.isNotEmpty() }
+            .map {  it.removePattern("""@""") }
+            .toList()
+    }
+
+    fun buildSentence(): String {
+        return frequencyWordsSentenceBuilder.buildSentence()
     }
 
 }
